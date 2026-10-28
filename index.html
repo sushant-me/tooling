@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent tooling — Sushant Poudel</title>
+<meta name="description" content="Six tools for the boundary between an autonomous agent and the actions it can take: detection, auditing, gating and measurement, each with the limits stated.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Agent tooling — Sushant Poudel">
+<meta property="og:description" content="Detect, audit, gate and measure the boundary between an autonomous agent and the actions it can take.">
+<meta property="og:url" content="https://sushant-me.github.io/tooling/">
+<link rel="canonical" href="https://sushant-me.github.io/tooling/">
+<style>
+  :root{
+    --ink:#101319; --muted:#5a6472; --line:#e3e7ee; --accent:#0b3d91; --accent2:#0d6b5f;
+    --bg:#ffffff; --panel:#f7f9fc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.6 "Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:56px 24px 80px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1{font-size:2.1rem;line-height:1.15;margin:0 0 6px;letter-spacing:-.8px}
+  .lede{font-size:1.08rem;color:var(--accent2);font-weight:600;margin:0 0 18px}
+  h2{font-size:.82rem;text-transform:uppercase;letter-spacing:1.6px;color:var(--accent);
+     margin:44px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  h3{font-size:1.05rem;margin:26px 0 2px}
+  h3 small{font-weight:400;color:var(--muted);font-size:.85rem;letter-spacing:0}
+  p{margin:9px 0}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:5px 0}
+  .muted{color:var(--muted)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:16px 0}
+  .panel.limit{border-left:4px solid var(--warning,#8a4b00)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}
+  pre{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:12px 14px;overflow-x:auto;
+      font-size:.86rem;line-height:1.5}
+  pre code{color:inherit}
+  .tag{display:inline-block;font-size:.72rem;letter-spacing:.6px;text-transform:uppercase;
+       color:var(--accent2);border:1px solid var(--line);border-radius:999px;padding:1px 8px;
+       margin-left:8px;vertical-align:middle}
+  footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:.92rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Agent tooling</h1>
+<p class="lede">Six small tools for the boundary between an autonomous agent and the actions it can take.</p>
+
+<p>
+  An agent that executes actions sits outside role-based access control: the identity is
+  authenticated, and nothing asks whether <em>this action</em> should happen. The tools here
+  work on that gap from four directions — find the boundary bugs, audit what a server
+  declares before an agent connects to it, gate the calls at runtime, and measure whether any
+  of it actually works. Each one states what it cannot do, because a scanner that only
+  advertises its recall is a scanner people switch off.
+</p>
+
+<h2>Detect and audit</h2>
+
+<h3>agentbound <small>— static detector for tool-boundary bugs</small></h3>
+<p>A third-party tool, a confirmation gate or a CI trigger crossing a security boundary the
+framework meant to enforce: reserved-name shadowing, last-wins tool dicts, fail-open gates,
+untrusted authors steering an agent that holds a write scope. Precision <b>1.00</b> measured
+against 14 real frameworks, and the four false-positive modes found getting there are
+written down.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/agentbound.git@v0.1.15"
+agentbound scan /path/to/repo --fail-on high</code></pre>
+<p class="muted">In CI:</p>
+<pre><code>- uses: sushant-me/agentbound@v1
+  with: { path: ., fail-on: high }</code></pre>
+
+<h3>mcpaudit <small>— audit an MCP server's declarations before you connect</small></h3>
+<p>What a client receives from <code>tools/list</code> is injected into the model's context, so
+it can carry instructions. Reports reserved-name collisions, instruction-shaped text,
+invisible Unicode with the tag-block payload <em>decoded</em>, look-alike names, destructive
+tools declaring <code>readOnlyHint</code>. A lock file with per-field hashes turns a
+description that changes after approval into a diff.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/mcpaudit.git@v0.1.3"
+mcpaudit audit tools.json --lock mcpaudit.lock.json</code></pre>
+<p class="muted">In CI, with the lock committed — drift fails the build:</p>
+<pre><code>- uses: sushant-me/mcpaudit@v1
+  with: { source: tools.json, lock: mcpaudit.lock.json }</code></pre>
+
+<h3>mcp-nameguard <small>— tool names against the ones frameworks reserve</small></h3>
+<p>Checks the names a server advertises against the names agent frameworks put on the wire
+themselves, and distinguishes <b>guarded</b> (the framework refuses the name, so the tool is
+dropped) from <b>unguarded</b> (the framework does not, so the server can simply take it).
+Reads a saved payload, stdin, or a live server over stdio.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/mcp-nameguard.git@v0.4.9"
+mcp-nameguard check tools.json --json</code></pre>
+<p class="muted">In CI:</p>
+<pre><code>- uses: sushant-me/mcp-nameguard@v1
+  with: { source: tools.json }</code></pre>
+
+<h2>Gate and measure</h2>
+
+<h3>policygate <small>— a fail-closed gate for tool calls</small></h3>
+<p>A model can deny or escalate, and <b>cannot authorise</b>: a failing evaluator falls through
+to a refusal, and every decision lands in a hash-chained audit log. Written because of a
+measurement — a locally served 3.8B model approved <b>23.5%</b> of the proposals the policy
+would have blocked.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/policygate.git@v0.1.1"</code></pre>
+
+<h3>trajectorycheck <small>— grade the trajectory, not the answer</small></h3>
+<p>Grades the tools an agent calls, the arguments it passes, the side effects it causes, and
+whether it behaves the same across runs — with a deliberately broken agent as a control, so
+every failure mode is exercised. <code>--min-pass-rate</code> turns it into a gate.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/trajectorycheck.git@v0.1.2"
+trajectorycheck run --runs 100 --min-pass-rate 0.95</code></pre>
+
+<h3>tool-boundary-corpus <small>— score a detector against labelled cases</small></h3>
+<p>A labelled corpus and a detector-agnostic harness: the detector is any command that reads a
+path and prints findings, so a number produced here can be compared with one produced next
+year, or by somebody else, on a detector that does not exist yet.</p>
+<pre><code>pip install "git+https://github.com/sushant-me/tool-boundary-corpus.git@v0.1.1"
+python3 -m corpus.cli run --kind tool-list --detector 'your-scanner {input}' --min-precision 0.9</code></pre>
+<p class="muted">In CI — the floors are the gate:</p>
+<pre><code>- uses: sushant-me/tool-boundary-corpus@v1
+  with:
+    detector: my-scanner --json {input}
+    kind: tool-list
+    min-precision: '0.9'</code></pre>
+
+<h2>What these do not do</h2>
+<div class="panel limit">
+<ul>
+  <li><b>A clean report is not a safe server.</b> The audits review <em>declarations</em>, not
+      behaviour: a server can declare a perfectly clean tool list and do something else when
+      called. Absence of evidence, stated plainly.</li>
+  <li><b>The corpus is self-authored.</b> It is a regression gate, not an independent
+      benchmark; the harness prints that caveat with every score so the number travels with its
+      limit.</li>
+  <li><b>Neither audit runs the server.</b> No network, no credentials, no SDK — which is also
+      why the declarations are never uploaded anywhere.</li>
+</ul>
+</div>
+
+<h2>Every claim is re-checked</h2>
+<p>
+  <a href="https://github.com/sushant-me/reputation">sushant-me/reputation</a> lists each claim
+  I make about this work, names the public source it came from, and checks it weekly — the
+  badge turns red the moment one stops being true. It also audits every public repository in
+  the account for committed credentials and checks that the four Action claims above are true
+  at the tags they name.
+</p>
+
+<footer>
+  <a href="https://github.com/sushant-me">github.com/sushant-me</a> ·
+  <a href="https://sushant-me.github.io/hire/">work with me</a> ·
+  <a href="https://sushantpoudel2028.com.np">sushantpoudel2028.com.np</a>
+</footer>
+
+</div>
+</body>
+</html>
