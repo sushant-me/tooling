@@ -37,6 +37,9 @@ OWNER = "sushant-me"
 INSTALL_RE = re.compile(rf"{OWNER}/(?P<repo>[a-z0-9-]+)\.git@(?P<tag>v[0-9][0-9.]*)")
 #: `uses: sushant-me/<repo>@v1` — a composite action reference.
 ACTION_RE = re.compile(rf"uses:\s*{OWNER}/(?P<repo>[a-z0-9-]+)@(?P<ref>v[0-9]+)")
+#: `<img src="https://...">` — a badge is a claim about a workflow that must exist.
+IMG_RE = re.compile(r'<img[^>]+src="(?P<src>https?://[^"]+)"')
+
 #: A link to a document the page quotes a number from.
 SURVEY_RE = re.compile(r"https://raw\.githubusercontent\.com/" + OWNER +
                        r"/(?P<repo>[a-z0-9-]+)/(?P<ref>[A-Za-z0-9._/-]+?)/"
@@ -78,6 +81,31 @@ def latest_release(repo: str) -> str | None:
     if isinstance(data, dict) and isinstance(data.get("tag_name"), str):
         return data["tag_name"]
     return None
+
+
+def image_status(url: str) -> int | None:
+    """HTTP status of an image URL, or None when it could not be fetched.
+
+    A GitHub Actions badge for a workflow that does not exist answers 404, so this catches
+    the case that matters most: a badge naming a workflow file that was renamed or removed.
+    A badge whose workflow exists but has never run still returns 200 - it draws "no status",
+    which is honest, and not this check's business.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": "tooling-page-check"})
+    for _ in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                response.read(64)
+                return response.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+        except Exception:
+            continue
+    return None
+
+
+def images(html: str) -> list[str]:
+    return sorted({m.group("src") for m in IMG_RE.finditer(html)})
 
 
 def fetch_doc(repo: str, path: str, ref: str) -> tuple[str, str | None]:
@@ -138,7 +166,7 @@ def quoted_sources(html: str) -> list[tuple[str, str, str, str, str]]:
 
 
 def check(html: str, fetch_latest=latest_release, fetch_action=action_ref_exists,
-          fetch_source=fetch_doc) -> list[tuple[str, str]]:
+          fetch_source=fetch_doc, fetch_image=image_status) -> list[tuple[str, str]]:
     """Return (kind, message) pairs. `kind` is "drift" or "unreadable"; [] means current.
 
     The two are kept apart on purpose. "The page advertises an old release" is a fix the
@@ -173,6 +201,13 @@ def check(html: str, fetch_latest=latest_release, fetch_action=action_ref_exists
         elif needle not in text:
             problems.append(("drift", f"{repo}/{ref}/{path} no longer contains {needle!r} — the page quotes it"))
 
+    for src in images(html):
+        status = fetch_image(src)
+        if status is None:
+            problems.append(("unreadable", f"could not fetch the image {src}"))
+        elif status >= 400:
+            problems.append(("drift", f"{src} answers {status} — the badge names something that is gone"))
+
     refs = action_refs(html)
     if not refs:
         problems.append(("drift", "no Action references found on the page — expected four"))
@@ -198,6 +233,7 @@ def run(page_path: str) -> int:
     print(f"install tags : {len(tags)}")
     for repo, tag in tags:
         print(f"  {repo:22} {tag}")
+    print(f"badges       : {len(images(html))}")
     print(f"action refs  : {len(refs)}")
     for repo, ref in refs:
         print(f"  {repo:22} {ref}")
@@ -275,6 +311,18 @@ def self_test() -> int:
                          fetch_source=lambda r, p, x: ("missing", None))
     expect("a link that does not resolve is drift, not a warning",
            [k for k, _ in broken_quote], ["drift"])
+
+    badge_page = page + '\n<img src="https://github.com/sushant-me/alpha/actions/workflows/ci.yml/badge.svg">'
+    expect("finds the image", images(badge_page),
+           ["https://github.com/sushant-me/alpha/actions/workflows/ci.yml/badge.svg"])
+
+    missing_badge = check(badge_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                          fetch_source=lambda r, p, x: ("ok", ""), fetch_image=lambda u: 404)
+    expect("a badge that 404s is drift", [k for k, _ in missing_badge], ["drift"])
+
+    unreadable_badge = check(badge_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                             fetch_source=lambda r, p, x: ("ok", ""), fetch_image=lambda u: None)
+    expect("an unfetchable badge is unreadable", [k for k, _ in unreadable_badge], ["unreadable"])
 
     blind_quote = check(quote_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
                         fetch_source=lambda r, p, x: ("error", None))
