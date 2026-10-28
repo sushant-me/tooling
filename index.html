@@ -60,7 +60,7 @@
 
 <h2>Detect and audit</h2>
 
-<h3>agentbound <small>— static detector for tool-boundary bugs</small></h3>
+<h3><a href="https://github.com/sushant-me/agentbound">agentbound</a> <small>— static detector for tool-boundary bugs</small></h3>
 <p>A third-party tool, a confirmation gate or a CI trigger crossing a security boundary the
 framework meant to enforce: reserved-name shadowing, last-wins tool dicts, fail-open gates,
 untrusted authors steering an agent that holds a write scope. Precision <b>1.00</b> measured
@@ -72,7 +72,7 @@ agentbound scan /path/to/repo --fail-on high</code></pre>
 <pre><code>- uses: sushant-me/agentbound@v1
   with: { path: ., fail-on: high }</code></pre>
 
-<h3>mcpaudit <small>— audit an MCP server's declarations before you connect</small></h3>
+<h3><a href="https://github.com/sushant-me/mcpaudit">mcpaudit</a> <small>— audit an MCP server's declarations before you connect</small></h3>
 <p>What a client receives from <code>tools/list</code> is injected into the model's context, so
 it can carry instructions. Reports reserved-name collisions, instruction-shaped text,
 invisible Unicode with the tag-block payload <em>decoded</em>, look-alike names, destructive
@@ -84,7 +84,7 @@ mcpaudit audit tools.json --lock mcpaudit.lock.json</code></pre>
 <pre><code>- uses: sushant-me/mcpaudit@v1
   with: { source: tools.json, lock: mcpaudit.lock.json }</code></pre>
 
-<h3>mcp-nameguard <small>— tool names against the ones frameworks reserve</small></h3>
+<h3><a href="https://github.com/sushant-me/mcp-nameguard">mcp-nameguard</a> <small>— tool names against the ones frameworks reserve</small></h3>
 <p>Checks the names a server advertises against the names agent frameworks put on the wire
 themselves, and distinguishes <b>guarded</b> (the framework refuses the name, so the tool is
 dropped) from <b>unguarded</b> (the framework does not, so the server can simply take it).
@@ -97,21 +97,21 @@ mcp-nameguard check tools.json --json</code></pre>
 
 <h2>Gate and measure</h2>
 
-<h3>policygate <small>— a fail-closed gate for tool calls</small></h3>
+<h3><a href="https://github.com/sushant-me/policygate">policygate</a> <small>— a fail-closed gate for tool calls</small></h3>
 <p>A model can deny or escalate, and <b>cannot authorise</b>: a failing evaluator falls through
 to a refusal, and every decision lands in a hash-chained audit log. Written because of a
 measurement — a locally served 3.8B model approved <b>23.5%</b> of the proposals the policy
 would have blocked.</p>
 <pre><code>pip install "git+https://github.com/sushant-me/policygate.git@v0.1.1"</code></pre>
 
-<h3>trajectorycheck <small>— grade the trajectory, not the answer</small></h3>
+<h3><a href="https://github.com/sushant-me/trajectorycheck">trajectorycheck</a> <small>— grade the trajectory, not the answer</small></h3>
 <p>Grades the tools an agent calls, the arguments it passes, the side effects it causes, and
 whether it behaves the same across runs — with a deliberately broken agent as a control, so
 every failure mode is exercised. <code>--min-pass-rate</code> turns it into a gate.</p>
 <pre><code>pip install "git+https://github.com/sushant-me/trajectorycheck.git@v0.1.2"
 trajectorycheck run --runs 100 --min-pass-rate 0.95</code></pre>
 
-<h3>tool-boundary-corpus <small>— score a detector against labelled cases</small></h3>
+<h3><a href="https://github.com/sushant-me/tool-boundary-corpus">tool-boundary-corpus</a> <small>— score a detector against labelled cases</small></h3>
 <p>A labelled corpus and a detector-agnostic harness: the detector is any command that reads a
 path and prints findings, so a number produced here can be compared with one produced next
 year, or by somebody else, on a detector that does not exist yet.</p>
