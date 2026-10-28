@@ -22,6 +22,7 @@ because "the page is wrong" is not a thing anyone can act on.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -36,6 +37,10 @@ OWNER = "sushant-me"
 INSTALL_RE = re.compile(rf"{OWNER}/(?P<repo>[a-z0-9-]+)\.git@(?P<tag>v[0-9][0-9.]*)")
 #: `uses: sushant-me/<repo>@v1` — a composite action reference.
 ACTION_RE = re.compile(rf"uses:\s*{OWNER}/(?P<repo>[a-z0-9-]+)@(?P<ref>v[0-9]+)")
+#: A link to a document the page quotes a number from.
+SURVEY_RE = re.compile(r"https://raw\.githubusercontent\.com/" + OWNER +
+                       r"/(?P<repo>[a-z0-9-]+)/(?P<ref>[A-Za-z0-9._/-]+?)/"
+                       r"(?P<path>[A-Za-z0-9._/-]+\.md)")
 
 
 def _get(url: str) -> object | None:
@@ -75,6 +80,29 @@ def latest_release(repo: str) -> str | None:
     return None
 
 
+def fetch_doc(repo: str, path: str, ref: str) -> tuple[str, str | None]:
+    """Read a quoted document at the ref the page links to. Returns (status, text).
+
+    status is "ok", "missing" (the link on the page does not resolve - that is drift) or
+    "error" (the API did not answer - that is not).
+
+    Read through the API rather than raw.githubusercontent.com: that host is not reachable
+    from every environment this check runs in (it was not from the one it was written in),
+    and "could not read a perfectly good document" is worse than no check. The ref is taken
+    from the page's own URL, so a link pointing at a branch that does not exist fails here
+    instead of 404ing for a reader.
+    """
+    data = _get(f"{API}/repos/{OWNER}/{repo}/contents/{path}?ref={ref}")
+    if data is None:
+        return "error", None
+    if not isinstance(data, dict) or data.get("encoding") != "base64":
+        return "missing", None
+    try:
+        return "ok", base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
+    except Exception:
+        return "missing", None
+
+
 def action_ref_exists(repo: str, ref: str) -> bool | None:
     """True/False, or None when the answer could not be fetched."""
     data = _get(f"{API}/repos/{OWNER}/{repo}/contents/action.yml?ref={ref}")
@@ -91,7 +119,26 @@ def action_refs(html: str) -> list[tuple[str, str]]:
     return sorted({(m.group("repo"), m.group("ref")) for m in ACTION_RE.finditer(html)})
 
 
-def check(html: str, fetch_latest=latest_release, fetch_action=action_ref_exists) -> list[tuple[str, str]]:
+def quoted_sources(html: str) -> list[tuple[str, str, str, str, str]]:
+    """Every (url, repo, path, quoted substring) the page asserts by quoting a document.
+
+    Only the survey is wired up today: it is the one number on the page that the ledger does
+    not carry, because adding a ledger claim would also mean editing published posts whose
+    deployment this repository cannot trigger. Keeping the assertion here is the honest
+    alternative - it is narrower than a ledger claim, and it is written down as narrower.
+    """
+    found: list[tuple[str, str, str, str, str]] = []
+    if "14 real frameworks" not in html or "precision" not in html.lower():
+        return found
+    for match in SURVEY_RE.finditer(html):
+        if match.group("repo") == "agentbound":
+            found.append((match.group(0), match.group("repo"), match.group("ref"),
+                          match.group("path"), "14 real agent frameworks"))
+    return found
+
+
+def check(html: str, fetch_latest=latest_release, fetch_action=action_ref_exists,
+          fetch_source=fetch_doc) -> list[tuple[str, str]]:
     """Return (kind, message) pairs. `kind` is "drift" or "unreadable"; [] means current.
 
     The two are kept apart on purpose. "The page advertises an old release" is a fix the
@@ -113,6 +160,18 @@ def check(html: str, fetch_latest=latest_release, fetch_action=action_ref_exists
                 "drift",
                 f"{repo}: page says {tag}, latest release is {latest} — update the install line",
             ))
+
+    # Numbers the page quotes from a document it links to. The ledger does not carry every
+    # one of them, so the page's own check asserts the document still says what is quoted -
+    # a summary that disagrees with its source is the failure mode this whole page is about.
+    for url, repo, ref, path, needle in quoted_sources(html):
+        status, text = fetch_source(repo, path, ref)
+        if status == "missing":
+            problems.append(("drift", f"{url} does not resolve — the link on the page is broken"))
+        elif status != "ok" or text is None:
+            problems.append(("unreadable", f"could not read the quoted source {url}"))
+        elif needle not in text:
+            problems.append(("drift", f"{repo}/{ref}/{path} no longer contains {needle!r} — the page quotes it"))
 
     refs = action_refs(html)
     if not refs:
@@ -197,6 +256,30 @@ def self_test() -> int:
 
     missing = check(page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: False)
     expect("missing action.yml is drift", [k for k, _ in missing], ["drift"])
+
+    quote_page = page + '\n<a href="https://raw.githubusercontent.com/sushant-me/agentbound/master/SURVEY.md">survey</a>\n14 real frameworks precision 1.00'
+    expect("finds the quoted source", [q[1:4] for q in quoted_sources(quote_page)],
+           [("agentbound", "master", "SURVEY.md")])
+    expect("no quote, no check", quoted_sources(page), [])
+
+    ok_quote = check(quote_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                     fetch_source=lambda r, p, x: ("ok", "# Survey: agentbound against 14 real agent frameworks"))
+    expect("a quote the source still contains passes", ok_quote, [])
+
+    stale_quote = check(quote_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                        fetch_source=lambda r, p, x: ("ok", "# Survey: rewritten, no number any more"))
+    expect("a quote the source no longer contains is drift",
+           [k for k, _ in stale_quote], ["drift"])
+
+    broken_quote = check(quote_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                         fetch_source=lambda r, p, x: ("missing", None))
+    expect("a link that does not resolve is drift, not a warning",
+           [k for k, _ in broken_quote], ["drift"])
+
+    blind_quote = check(quote_page, fetch_latest=lambda r: "v1.2.3", fetch_action=lambda r, x: True,
+                        fetch_source=lambda r, p, x: ("error", None))
+    expect("an unreadable source is unreadable, not drift",
+           [k for k, _ in blind_quote], ["unreadable"])
 
     blind = check(page, fetch_latest=lambda r: None, fetch_action=lambda r, x: None)
     expect("API failure is unreadable, not drift", [k for k, _ in blind], ["unreadable", "unreadable"])
