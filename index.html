@@ -115,7 +115,7 @@ trajectorycheck run --runs 100 --min-pass-rate 0.95</code></pre>
 <p>A labelled corpus and a detector-agnostic harness: the detector is any command that reads a
 path and prints findings, so a number produced here can be compared with one produced next
 year, or by somebody else, on a detector that does not exist yet.</p>
-<pre><code>pip install "git+https://github.com/sushant-me/tool-boundary-corpus.git@v0.1.1"
+<pre><code>pip install "git+https://github.com/sushant-me/tool-boundary-corpus.git@v0.1.2"
 python3 -m corpus.cli run --kind tool-list --detector 'your-scanner {input}' --min-precision 0.9</code></pre>
 <p class="muted">In CI — the floors are the gate:</p>
 <pre><code>- uses: sushant-me/tool-boundary-corpus@v1
